@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "firebase": "^10.8.0",
     "lucide-react": "^0.263.1",
     "plotly.js-dist-min": "^2.35.3",
     "react": "^18.2.0",
