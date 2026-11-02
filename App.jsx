@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom/client';
 import QRCode from 'react-qr-code';
 import Plot from 'react-plotly.js';
 import { CheckCircle } from 'lucide-react';
@@ -208,4 +209,8 @@ export default function App() {
       </div>
     </div>
   );
+}
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  ReactDOM.createRoot(rootElement).render(<App />);
 }
