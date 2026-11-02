@@ -144,12 +144,22 @@ export default function App() {
   const currentQuestionAnswers = allAnswers[currentQuestionIndex] || [];
 
   const submitAnswer = () => {
-    const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
-    const newRef = push(ansRef);
-    set(newRef, Number(currentAnswer));
-    setHasSubmitted(true);
-    setSubmittedQuestionIndex(currentQuestionIndex);
-  };
+  const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
+  const newRef = push(ansRef);
+  
+  console.log("Försöker skicka svar till Firebase...", { roomCode, currentQuestionIndex, currentAnswer });
+
+  set(newRef, Number(currentAnswer))
+    .then(() => {
+      console.log("Svar skickat och sparat i Firebase!");
+      setHasSubmitted(true);
+      setSubmittedQuestionIndex(currentQuestionIndex);
+    })
+    .catch((error) => {
+      console.error("FIREBASE-FEL VID SKICKNING:", error);
+      alert("Kunde inte skicka svar: " + error.message);
+    });
+};
 
   const toggleQuestionStatus = () => {
     const newStatus = !isQuestionActive;
