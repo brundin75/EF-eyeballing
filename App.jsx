@@ -7,7 +7,7 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, push, set } from 'firebase/database';
 
 // =========================================================================
-// FIREBASE KONFIGURATION (LVEF-Eyeballing)
+// FIREBASE KONFIGURATION
 // =========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyCzSVIr2jy9uu8Ok_SSTXdi-T9F5jaf0HQ",
@@ -235,7 +235,7 @@ export default function App() {
     );
   }
 
-  // 1b. Lösenordskontroll
+  // 2. Lösenordskontroll
   if (role === 'password') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
@@ -256,7 +256,7 @@ export default function App() {
               style={{ width: '100%', padding: '14px', borderRadius: '10px', border: passwordError ? '2px solid #ef4444' : '1px solid #475569', backgroundColor: '#0f172a', color: 'white', fontSize: '1.1rem', boxSizing: 'border-box', textAlign: 'center' }}
             />
             {passwordError && (
-              <p style={{ color: '#f87171', fontSize: '0.85rem', marginTop: '8px', textAlign: 'center', marginBotton: 0 }}>
+              <p style={{ color: '#f87171', fontSize: '0.85rem', marginTop: '8px', textAlign: 'center', marginBottom: 0 }}>
                 Fel lösenord. Försök igen!
               </p>
             )}
@@ -275,7 +275,7 @@ export default function App() {
     );
   }
 
-  // 2. Föreläsare: Inställningar innan start
+  // 3. Föreläsare: Inställningar innan start
   if (role === 'setup') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
@@ -303,7 +303,7 @@ export default function App() {
     );
   }
 
-  // 3. Föreläsare: Live vy
+  // 4. Föreläsare: Live vy
   if (role === 'presenter') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', padding: '30px', fontFamily: 'sans-serif' }}>
@@ -343,7 +343,6 @@ export default function App() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr', gap: '25px' }}>
-          {/* Grafsektion */}
           <div style={{ backgroundColor: '#1e293b', borderRadius: '16px', padding: '20px', border: '1px solid #334155' }}>
             <h3 style={{ marginTop: 0, color: '#cbd5e1' }}>Svarsfördelning (Violinplott)</h3>
             {currentQuestionAnswers.length > 0 ? (
@@ -383,7 +382,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Statistikpaneler */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <div style={{ backgroundColor: '#1e293b', borderRadius: '14px', padding: '20px', border: '1px solid #334155' }}>
               <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Antal svar</div>
@@ -409,7 +407,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Dynamiska styrknappar */}
         <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button onClick={() => setRole(null)} style={{ backgroundColor: '#334155', color: 'white', padding: '12px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
             Avsluta föreläsning
@@ -439,7 +436,7 @@ export default function App() {
     );
   }
 
-  // 4. Slutsammanfattning
+  // 5. Slutsammanfattning
   if (role === 'summary') {
     const summaryList = Array.from({ length: totalQuestions }, (_, i) => {
       const qNum = i + 1;
@@ -494,7 +491,62 @@ export default function App() {
     );
   }
 
-  // 5. Deltagare Vy
+  // 6. Deltagare Vy
+  let participantContent;
+
+  if (mySubmittedAnswer !== null) {
+    participantContent = (
+      <div style={{ textAlign: 'center', padding: '30px 0' }}>
+        <CheckCircle size={56} color="#a7f3d0" style={{ margin: '0 auto 15px auto' }} />
+        <h3 style={{ color: '#ecfdf5', margin: '0 0 10px 0' }}>Svaret är registrerat!</h3>
+        <p style={{ color: '#a7f3d0', fontSize: '1.1rem' }}>Ditt svar för fråga {currentQuestionIndex}: <strong>{mySubmittedAnswer} %</strong></p>
+        <p style={{ color: '#d1fae5', fontSize: '0.85rem', marginTop: '20px' }}>Du har svarat på denna fråga. Vänta tills föreläsaren byter fråga...</p>
+      </div>
+    );
+  } else if (questionStatus === 'pending') {
+    participantContent = (
+      <div style={{ textAlign: 'center', padding: '30px 0' }}>
+        <Clock size={48} color="#93c5fd" style={{ margin: '0 auto 15px auto' }} />
+        <h3 style={{ color: '#e0f2fe', margin: '0 0 10px 0' }}>Gör dig redo!</h3>
+        <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Föreläsaren har inte startat röstningen för fråga {currentQuestionIndex} än.</p>
+      </div>
+    );
+  } else if (questionStatus === 'closed') {
+    participantContent = (
+      <div style={{ textAlign: 'center', padding: '30px 0' }}>
+        <Lock size={48} color="#fca5a5" style={{ margin: '0 auto 15px auto' }} />
+        <h3 style={{ color: '#fecdd3', margin: '0 0 10px 0' }}>Röstningen är stängd</h3>
+        <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Inga fler svar tas emot för denna fråga. Vänta på nästa fråga...</p>
+      </div>
+    );
+  } else {
+    participantContent = (
+      <div>
+        <label style={{ display: 'block', marginBottom: '15px', fontWeight: 'bold', fontSize: '1.1rem' }}>
+          Ange din visuella bedömning (10-80 %):
+        </label>
+        <div style={{ fontSize: '3.5rem', textAlign: 'center', fontWeight: 'bold', color: '#fef08a', marginBottom: '20px' }}>
+          {currentAnswer} %
+        </div>
+        <input
+          type="range"
+          min="10"
+          max="80"
+          step="1"
+          value={currentAnswer}
+          onChange={(e) => setCurrentAnswer(e.target.value)}
+          style={{ width: '100%', height: '12px', borderRadius: '6px', cursor: 'pointer', marginBottom: '30px' }}
+        />
+        <button
+          onClick={submitAnswer}
+          style={{ width: '100%', backgroundColor: '#f59e0b', color: '#78350f', padding: '16px', borderRadius: '12px', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer' }}
+        >
+          Skicka svar
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#064e3b', color: '#f8fafc', padding: '20px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: '400px', backgroundColor: '#047857', borderRadius: '16px', padding: '25px', border: '1px solid #059669' }}>
@@ -502,56 +554,10 @@ export default function App() {
         <p style={{ textAlign: 'center', color: '#d1fae5', fontSize: '0.9rem', marginBottom: '25px' }}>
           Rum: <strong>{roomCode}</strong> | Fråga {currentQuestionIndex} av {totalQuestions}
         </p>
-
-        {/* Om deltagaren redan svarat */}
-        {mySubmittedAnswer !== null ? (
-          <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <CheckCircle size={56} color="#a7f3d0" style={{ margin: '0 auto 15px auto' }} />
-            <h3 style={{ color: '#ecfdf5', margin: '0 0 10px 0' }}>Svaret är registrerat!</h3>
-            <p style={{ color: '#a7f3d0', fontSize: '1.1rem' }}>Ditt svar för fråga {currentQuestionIndex}: <strong>{mySubmittedAnswer} %</strong></p>
-            <p style={{ color: '#d1fae5', fontSize: '0.85rem', marginTop: '20px' }}>Du har svarat på denna fråga. Vänta tills föreläsaren byter fråga...</p>
-          </div>
-        ) : questionStatus === 'pending' ? (
-          <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <Clock size={48} color="#93c5fd" style={{ margin: '0 auto 15px auto' }} />
-            <h3 style={{ color: '#e0f2fe', margin: '0 0 10px 0' }}>Gör dig redo!</h3>
-            <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Föreläsaren har inte startat röstningen för fråga {currentQuestionIndex} än.</p>
-          </div>
-        ) : questionStatus === 'closed' ? (
-          <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <Lock size={48} color="#fca5a5" style={{ margin: '0 auto 15px auto' }} />
-            <h3 style={{ color: '#fecdd3', margin: '0 0 10px 0' }}>Röstningen är stängd</h3>
-            <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Inga fler svar tas emot för denna fråga. Vänta på nästa fråga...</p>
-          </div>
-        ) : (
-          /* Aktiv röstning */
-          <div>
-            <label style={{ display: 'block', marginBottom: '15px', fontWeight: 'bold', fontSize: '1.1rem' }}>
-              Ange din visuella bedömning (10-80 %):
-            </label>
-            <div style={{ fontSize: '3.5rem', textAlign: 'center', fontWeight: 'bold', color: '#fef08a', marginBottom: '20px' }}>
-              {currentAnswer} %
-            </div>
-            <input
-              type="range"
-              min="10"
-              max="80"
-              step="1"
-              value={currentAnswer}
-              onChange={(e) => setCurrentAnswer(e.target.value)}
-              style={{ width: '100%', height: '12px', borderRadius: '6px', cursor: 'pointer', marginBottom: '30px' }}
-            />
-            <button
-              onClick={submitAnswer}
-              style={{ width: '100%', backgroundColor: '#f59e0b', color: '#78350f', padding: '16px', borderRadius: '12px', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              Skicka svar
-            </button>
-          </div>
-        )}
+        {participantContent}
       </div>
-    );
-  }
+    </div>
+  );
 }
 
 const rootElement = document.getElementById('root');
