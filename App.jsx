@@ -1,7 +1,14 @@
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, push, set } from "firebase/database";
+import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+import QRCode from 'react-qr-code';
+import Plot from 'react-plotly.js';
+import { CheckCircle, Lock, BarChart2 } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, push, set } from 'firebase/database';
 
-// Klistra in dina nycklar från Firebase här:
+// =========================================================================
+// 1. KLISTRA IN DINA FIREBASE-NYCKLAR HÄR (från Firebase Settings)
+// =========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyCzSVIr2jy9uu8Ok_SSTXdi-T9F5jaf0HQ",
   authDomain: "lvef-eyeballing.firebaseapp.com",
@@ -13,27 +20,80 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);import React, { useState } from 'react';
-import ReactDOM from 'react-dom/client';
-import QRCode from 'react-qr-code';
-import Plot from 'react-plotly.js';
-import { CheckCircle, Lock, Play, BarChart2, RotateCcw } from 'lucide-react';
+const db = getDatabase(app);
 
 export default function App() {
-  const [role, setRole] = useState(null); // 'setup' | 'presenter' | 'summary' | 'participant'
+  const [role, setRole] = useState(null); // null | 'setup' | 'presenter' | 'summary' | 'participant'
+  const [roomCode, setRoomCode] = useState('');
+  const [inputCode, setInputCode] = useState('');
+  
+  // Föreläsare & Synkade tillstånd
   const [totalQuestions, setTotalQuestions] = useState(5);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(1);
   const [isQuestionActive, setIsQuestionActive] = useState(true);
   
-  const [roomCode, setRoomCode] = useState('');
-  const [inputCode, setInputCode] = useState('');
-  
-  // Svarsdata per fråga: { [qNum]: [svar1, svar2, ...] }
+  // Alla svar från databasen: { [qNum]: [svar1, svar2, ...] }
   const [allAnswers, setAllAnswers] = useState({});
+  
+  // Deltagare
   const [currentAnswer, setCurrentAnswer] = useState(50);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [submittedQuestionIndex, setSubmittedQuestionIndex] = useState(null);
 
-  // Beräkna statistik (Medelvärde, Standardavvikelse, Min, Max)
+  // Lägg till stöd för QR-kod/direktlänk om rumskod finns i URL:en (?room=1234)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const qRoom = params.get('room');
+      if (qRoom) {
+        setInputCode(qRoom);
+        setRoomCode(qRoom);
+        setRole('participant');
+      }
+    }
+  }, []);
+
+  // Lyssna på rumsinfo från Firebase (frågonummer, status, antal frågor)
+  useEffect(() => {
+    if (!roomCode) return;
+    const infoRef = ref(db, `rooms/${roomCode}/info`);
+    const unsubscribe = onValue(infoRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setTotalQuestions(data.totalQuestions || 5);
+        setCurrentQuestionIndex(data.currentQuestion || 1);
+        setIsQuestionActive(data.isActive !== false);
+      }
+    });
+    return () => unsubscribe();
+  }, [roomCode]);
+
+  // Lyssna på alla inkommande svar i realtid från Firebase
+  useEffect(() => {
+    if (!roomCode) return;
+    const answersRef = ref(db, `rooms/${roomCode}/answers`);
+    const unsubscribe = onValue(answersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const formatted = {};
+      Object.keys(data).forEach((qNum) => {
+        const qObj = data[qNum] || {};
+        formatted[qNum] = Object.values(qObj).map(Number);
+      });
+      setAllAnswers(formatted);
+    });
+    return () => unsubscribe();
+  }, [roomCode]);
+
+  // Återställ deltagarens svarsstatus när föreläsaren byter fråga
+  useEffect(() => {
+    if (role === 'participant') {
+      if (submittedQuestionIndex !== currentQuestionIndex) {
+        setHasSubmitted(false);
+      }
+    }
+  }, [currentQuestionIndex, submittedQuestionIndex, role]);
+
+  // Beräkna statistik
   const calcStats = (data = []) => {
     const count = data.length;
     if (count === 0) return { count: 0, avg: '0', sd: '0', sdNum: 0, minVal: 0, maxVal: 0 };
@@ -64,16 +124,19 @@ export default function App() {
   };
 
   const startPresentation = () => {
-    setCurrentQuestionIndex(1);
-    setIsQuestionActive(true);
-    setAllAnswers({});
+    set(ref(db, `rooms/${roomCode}/info`), {
+      totalQuestions: Number(totalQuestions),
+      currentQuestion: 1,
+      isActive: true
+    });
     setRole('presenter');
   };
 
   const joinRoom = (e) => {
     e.preventDefault();
     if (inputCode.trim().length > 0) {
-      setRoomCode(inputCode.trim());
+      const code = inputCode.trim();
+      setRoomCode(code);
       setRole('participant');
     }
   };
@@ -81,24 +144,29 @@ export default function App() {
   const currentQuestionAnswers = allAnswers[currentQuestionIndex] || [];
 
   const submitAnswer = () => {
-    const val = Number(currentAnswer);
-    setAllAnswers(prev => ({
-      ...prev,
-      [currentQuestionIndex]: [...(prev[currentQuestionIndex] || []), val]
-    }));
+    const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
+    const newRef = push(ansRef);
+    set(newRef, Number(currentAnswer));
     setHasSubmitted(true);
+    setSubmittedQuestionIndex(currentQuestionIndex);
   };
 
   const toggleQuestionStatus = () => {
-    setIsQuestionActive(!isQuestionActive);
+    const newStatus = !isQuestionActive;
+    setIsQuestionActive(newStatus);
+    set(ref(db, `rooms/${roomCode}/info/isActive`), newStatus);
   };
 
   const goToNextQuestion = () => {
-    if (currentQuestionIndex < totalQuestions) {
-      setCurrentQuestionIndex(prev => prev + 1);
+    const nextQ = currentQuestionIndex + 1;
+    if (nextQ <= totalQuestions) {
+      setCurrentQuestionIndex(nextQ);
       setIsQuestionActive(true);
-      setHasSubmitted(false);
-      setCurrentAnswer(50);
+      set(ref(db, `rooms/${roomCode}/info`), {
+        totalQuestions: Number(totalQuestions),
+        currentQuestion: nextQ,
+        isActive: true
+      });
     } else {
       setRole('summary');
     }
@@ -287,7 +355,7 @@ export default function App() {
       const qAnswers = allAnswers[qNum] || [];
       const stats = calcStats(qAnswers);
       return { qNum, answers: qAnswers, ...stats };
-    }).sort((a, b) => b.sdNum - a.sdNum); // Sorterat på störst SD först
+    }).sort((a, b) => b.sdNum - a.sdNum);
 
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', padding: '30px', fontFamily: 'sans-serif' }}>
@@ -391,3 +459,33 @@ const rootElement = document.getElementById('root');
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(<App />);
 }
+
+
+
+  // Föreläsare: Inställningar innan start
+  if (role === 'setup') {
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
+        <div style={{ backgroundColor: '#1e293b', padding: '40px', borderRadius: '20px', border: '1px solid #334155', maxWidth: '450px', width: '100%' }}>
+          <h2 style={{ marginTop: 0, color: '#38bdf8' }}>Konfigurera föreläsning</h2>
+          <p style={{ color: '#94a3b8' }}>Välj hur många frågor/fall som ingår i din presentation.</p>
+
+          <div style={{ margin: '30px 0' }}>
+            <label style={{ display: 'block', marginBottom: '10px', color: '#cbd5e1', fontWeight: 'bold' }}>Antal frågor:</label>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={totalQuestions}
+              onChange={(e) => setTotalQuestions(Math.max(1, parseInt(e.target.value) || 1))}
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', fontSize: '1.2rem', textAlign: 'center' }}
+            />
+          </div>
+
+          <button onClick={startPresentation} style={{ width: '100%', backgroundColor: '#2563eb', color: 'white', padding: '16px', borderRadius: '12px', border: 'none', fontSize: '1.1rem', cursor: 'pointer', fontWeight: 'bold' }}>
+            Starta rum ({roomCode})
+          </button>
+        </div>
+      </div>
+    );
+  }
