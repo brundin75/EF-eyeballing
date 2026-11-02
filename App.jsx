@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import QRCode from 'react-qr-code';
 import Plot from 'react-plotly.js';
-import { CheckCircle, Lock, BarChart2, AlertCircle } from 'lucide-react';
+import { CheckCircle, Lock, Play, BarChart2, Clock, ArrowRight } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, push, set } from 'firebase/database';
 
 // =========================================================================
-// FIREBASE KONFIGURATION (Dina nycklar för lvef-eyeballing)
+// FIREBASE KONFIGURATION (LVEF-Eyeballing)
 // =========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyCzSVIr2jy9uu8Ok_SSTXdi-T9F5jaf0HQ",
@@ -30,17 +30,16 @@ export default function App() {
   // Föreläsare & Synkade tillstånd
   const [totalQuestions, setTotalQuestions] = useState(5);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(1);
-  const [isQuestionActive, setIsQuestionActive] = useState(true);
+  const [questionStatus, setQuestionStatus] = useState('pending'); // 'pending' | 'active' | 'closed'
   
   // Alla svar från databasen: { [qNum]: [svar1, svar2, ...] }
   const [allAnswers, setAllAnswers] = useState({});
   
   // Deltagare
   const [currentAnswer, setCurrentAnswer] = useState(50);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [submittedQuestionIndex, setSubmittedQuestionIndex] = useState(null);
+  const [mySubmittedAnswer, setMySubmittedAnswer] = useState(null);
 
-  // Lägg till stöd för QR-kod/direktlänk om rumskod finns i URL:en (?room=1234)
+  // Anslut via direktlänk/QR-kod (?room=1234)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -53,60 +52,48 @@ export default function App() {
     }
   }, []);
 
-  // Lyssna på rumsinfo från Firebase (frågonummer, status, antal frågor)
+  // Lyssna på rumsinfo från Firebase
   useEffect(() => {
     if (!roomCode) return;
-    console.log("Lyssnar på rumskod i Firebase:", roomCode);
     const infoRef = ref(db, `rooms/${roomCode}/info`);
-    const unsubscribe = onValue(
-      infoRef,
-      (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          console.log("Mottog rumsinfo från Firebase:", data);
-          setTotalQuestions(data.totalQuestions || 5);
-          setCurrentQuestionIndex(data.currentQuestion || 1);
-          setIsQuestionActive(data.isActive !== false);
-        }
-      },
-      (error) => {
-        console.error("Fel vid läsning av rumsinfo från Firebase:", error);
+    const unsubscribe = onValue(infoRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setTotalQuestions(data.totalQuestions || 5);
+        setCurrentQuestionIndex(data.currentQuestion || 1);
+        setQuestionStatus(data.status || 'pending');
       }
-    );
+    });
     return () => unsubscribe();
   }, [roomCode]);
 
-  // Lyssna på alla inkommande svar i realtid från Firebase
+  // Lyssna på alla inkommande svar i realtid
   useEffect(() => {
     if (!roomCode) return;
     const answersRef = ref(db, `rooms/${roomCode}/answers`);
-    const unsubscribe = onValue(
-      answersRef,
-      (snapshot) => {
-        const data = snapshot.val() || {};
-        console.log("Mottog svarsdata från Firebase:", data);
-        const formatted = {};
-        Object.keys(data).forEach((qNum) => {
-          const qObj = data[qNum] || {};
-          formatted[qNum] = Object.values(qObj).map(Number);
-        });
-        setAllAnswers(formatted);
-      },
-      (error) => {
-        console.error("Fel vid läsning av svarsdata från Firebase:", error);
-      }
-    );
+    const unsubscribe = onValue(answersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const formatted = {};
+      Object.keys(data).forEach((qNum) => {
+        const qObj = data[qNum] || {};
+        formatted[qNum] = Object.values(qObj).map(Number);
+      });
+      setAllAnswers(formatted);
+    });
     return () => unsubscribe();
   }, [roomCode]);
 
-  // Återställ deltagarens svarsstatus när föreläsaren byter fråga
+  // Kontrollera om deltagaren redan svarat på den aktuella frågan (via localStorage)
   useEffect(() => {
-    if (role === 'participant') {
-      if (submittedQuestionIndex !== currentQuestionIndex) {
-        setHasSubmitted(false);
+    if (role === 'participant' && roomCode && currentQuestionIndex) {
+      const saved = localStorage.getItem(`ans_${roomCode}_q${currentQuestionIndex}`);
+      if (saved !== null) {
+        setMySubmittedAnswer(Number(saved));
+      } else {
+        setMySubmittedAnswer(null);
       }
     }
-  }, [currentQuestionIndex, submittedQuestionIndex, role]);
+  }, [role, roomCode, currentQuestionIndex]);
 
   // Beräkna statistik (Medelvärde, Standardavvikelse, Min, Max)
   const calcStats = (data = []) => {
@@ -139,20 +126,12 @@ export default function App() {
   };
 
   const startPresentation = () => {
-    console.log("Initierar rum i Firebase med kod:", roomCode);
     set(ref(db, `rooms/${roomCode}/info`), {
       totalQuestions: Number(totalQuestions),
       currentQuestion: 1,
-      isActive: true
-    })
-      .then(() => {
-        console.log("Rummet har skapats i Firebase!");
-        setRole('presenter');
-      })
-      .catch((err) => {
-        console.error("FEL vid skapande av rum i Firebase:", err);
-        alert("Kunde inte skapa rum i Firebase: " + err.message);
-      });
+      status: 'pending'
+    });
+    setRole('presenter');
   };
 
   const joinRoom = (e) => {
@@ -166,44 +145,43 @@ export default function App() {
 
   const currentQuestionAnswers = allAnswers[currentQuestionIndex] || [];
 
+  // Deltagare skickar svar (Endast 1 per fråga tillåts)
   const submitAnswer = () => {
-    console.log("Skickar svar till Firebase...", { roomCode, currentQuestionIndex, currentAnswer });
+    if (mySubmittedAnswer !== null || questionStatus !== 'active') return;
+
+    const val = Number(currentAnswer);
     const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
     const newRef = push(ansRef);
-    set(newRef, Number(currentAnswer))
+
+    set(newRef, val)
       .then(() => {
-        console.log("Svaret har sparats i Firebase!");
-        setHasSubmitted(true);
-        setSubmittedQuestionIndex(currentQuestionIndex);
+        localStorage.setItem(`ans_${roomCode}_q${currentQuestionIndex}`, val.toString());
+        setMySubmittedAnswer(val);
       })
       .catch((err) => {
-        console.error("FEL vid sparande av svar i Firebase:", err);
+        console.error("Fel vid sparande av svar:", err);
         alert("Kunde inte skicka svar: " + err.message);
       });
   };
 
-  const toggleQuestionStatus = () => {
-    const newStatus = !isQuestionActive;
-    setIsQuestionActive(newStatus);
-    set(ref(db, `rooms/${roomCode}/info/isActive`), newStatus)
-      .catch((err) => {
-        console.error("FEL vid ändring av röstningsstatus:", err);
-        alert("Kunde inte ändra röstningsstatus: " + err.message);
-      });
+  // Föreläsare: Starta röstning
+  const handleStartQuestion = () => {
+    set(ref(db, `rooms/${roomCode}/info/status`), 'active');
   };
 
-  const goToNextQuestion = () => {
+  // Föreläsare: Avsluta röstning
+  const handleCloseQuestion = () => {
+    set(ref(db, `rooms/${roomCode}/info/status`), 'closed');
+  };
+
+  // Föreläsare: Gå till nästa fråga
+  const handleNextQuestion = () => {
     const nextQ = currentQuestionIndex + 1;
     if (nextQ <= totalQuestions) {
-      setCurrentQuestionIndex(nextQ);
-      setIsQuestionActive(true);
       set(ref(db, `rooms/${roomCode}/info`), {
         totalQuestions: Number(totalQuestions),
         currentQuestion: nextQ,
-        isActive: true
-      }).catch((err) => {
-        console.error("FEL vid byte av fråga:", err);
-        alert("Kunde inte byta fråga i Firebase: " + err.message);
+        status: 'pending'
       });
     } else {
       setRole('summary');
@@ -271,7 +249,7 @@ export default function App() {
     );
   }
 
-  // 3. Föreläsare: Live vy för aktiv fråga
+  // 3. Föreläsare: Live vy
   if (role === 'presenter') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', padding: '30px', fontFamily: 'sans-serif' }}>
@@ -280,9 +258,22 @@ export default function App() {
             <h1 style={{ fontSize: '1.8rem', margin: 0, color: '#38bdf8' }}>lvef-eyeballing</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '5px' }}>
               <h2 style={{ fontSize: '1.3rem', margin: 0, color: '#f8fafc' }}>Fråga {currentQuestionIndex} av {totalQuestions}</h2>
-              <span style={{ backgroundColor: isQuestionActive ? '#065f46' : '#991b1b', color: isQuestionActive ? '#34d399' : '#fca5a5', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                {isQuestionActive ? '● Röstning öppen' : '🔒 Röstning avslutad'}
-              </span>
+              
+              {questionStatus === 'pending' && (
+                <span style={{ backgroundColor: '#1e3a8a', color: '#93c5fd', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Clock size={14} /> Väntar på start
+                </span>
+              )}
+              {questionStatus === 'active' && (
+                <span style={{ backgroundColor: '#065f46', color: '#34d399', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                  ● Röstning pågår
+                </span>
+              )}
+              {questionStatus === 'closed' && (
+                <span style={{ backgroundColor: '#991b1b', color: '#fca5a5', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Lock size={14} /> Röstning avslutad
+                </span>
+              )}
             </div>
           </div>
 
@@ -333,7 +324,7 @@ export default function App() {
             ) : (
               <div style={{ height: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
                 <BarChart2 size={48} style={{ marginBottom: '10px', opacity: 0.5 }} />
-                <p>Väntar på att deltagarna ska skicka sina svar...</p>
+                <p>{questionStatus === 'pending' ? 'Klicka på "Starta röstning" nedan för att ta emot svar.' : 'Väntar på första svaret...'}</p>
               </div>
             )}
           </div>
@@ -364,19 +355,27 @@ export default function App() {
           </div>
         </div>
 
-        {/* Kontroller */}
+        {/* Dynamiska styrknappar */}
         <div style={{ marginTop: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button onClick={() => setRole(null)} style={{ backgroundColor: '#334155', color: 'white', padding: '12px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
             Avsluta föreläsning
           </button>
 
           <div style={{ display: 'flex', gap: '15px' }}>
-            {isQuestionActive ? (
-              <button onClick={toggleQuestionStatus} style={{ backgroundColor: '#dc2626', color: 'white', padding: '14px 28px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Lock size={18} /> Avsluta röstning för Fråga {currentQuestionIndex}
+            {questionStatus === 'pending' && (
+              <button onClick={handleStartQuestion} style={{ backgroundColor: '#10b981', color: 'white', padding: '14px 28px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Play size={18} /> Starta röstning för Fråga {currentQuestionIndex}
               </button>
-            ) : (
-              <button onClick={goToNextQuestion} style={{ backgroundColor: '#2563eb', color: 'white', padding: '14px 28px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            )}
+
+            {questionStatus === 'active' && (
+              <button onClick={handleCloseQuestion} style={{ backgroundColor: '#dc2626', color: 'white', padding: '14px 28px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Lock size={18} /> Avsluta röstning & Lås resultat
+              </button>
+            )}
+
+            {questionStatus === 'closed' && (
+              <button onClick={handleNextQuestion} style={{ backgroundColor: '#2563eb', color: 'white', padding: '14px 28px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {currentQuestionIndex < totalQuestions ? `Gå till Fråga ${currentQuestionIndex + 1} →` : 'Visa Slutsammanfattning →'}
               </button>
             )}
@@ -386,7 +385,7 @@ export default function App() {
     );
   }
 
-  // 4. Föreläsare: Slutsammanfattning sorterad på Standardavvikelse (SD)
+  // 4. Slutsammanfattning
   if (role === 'summary') {
     const summaryList = Array.from({ length: totalQuestions }, (_, i) => {
       const qNum = i + 1;
@@ -450,13 +449,28 @@ export default function App() {
           Rum: <strong>{roomCode}</strong> | Fråga {currentQuestionIndex} av {totalQuestions}
         </p>
 
-        {!isQuestionActive ? (
+        {/* Om deltagaren redan svarat */}
+        {mySubmittedAnswer !== null ? (
+          <div style={{ textAlign: 'center', padding: '30px 0' }}>
+            <CheckCircle size={56} color="#a7f3d0" style={{ margin: '0 auto 15px auto' }} />
+            <h3 style={{ color: '#ecfdf5', margin: '0 0 10px 0' }}>Svaret är registrerat!</h3>
+            <p style={{ color: '#a7f3d0', fontSize: '1.1rem' }}>Ditt svar för fråga {currentQuestionIndex}: <strong>{mySubmittedAnswer} %</strong></p>
+            <p style={{ color: '#d1fae5', fontSize: '0.85rem', marginTop: '20px' }}>Du har svarat på denna fråga. Vänta tills föreläsaren byter fråga...</p>
+          </div>
+        ) : questionStatus === 'pending' ? (
+          <div style={{ textAlign: 'center', padding: '30px 0' }}>
+            <Clock size={48} color="#93c5fd" style={{ margin: '0 auto 15px auto' }} />
+            <h3 style={{ color: '#e0f2fe', margin: '0 0 10px 0' }}>Gör dig redo!</h3>
+            <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Föreläsaren har inte startat röstningen för fråga {currentQuestionIndex} än.</p>
+          </div>
+        ) : questionStatus === 'closed' ? (
           <div style={{ textAlign: 'center', padding: '30px 0' }}>
             <Lock size={48} color="#fca5a5" style={{ margin: '0 auto 15px auto' }} />
             <h3 style={{ color: '#fecdd3', margin: '0 0 10px 0' }}>Röstningen är stängd</h3>
-            <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Föreläsaren går strax vidare till nästa fråga...</p>
+            <p style={{ color: '#d1fae5', fontSize: '0.9rem' }}>Inga fler svar tas emot för denna fråga. Vänta på nästa fråga...</p>
           </div>
-        ) : !hasSubmitted ? (
+        ) : (
+          /* Aktiv röstning */
           <div>
             <label style={{ display: 'block', marginBottom: '15px', fontWeight: 'bold', fontSize: '1.1rem' }}>
               Ange din visuella bedömning (10-80 %):
@@ -479,13 +493,6 @@ export default function App() {
             >
               Skicka svar
             </button>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <CheckCircle size={56} color="#a7f3d0" style={{ margin: '0 auto 15px auto' }} />
-            <h3 style={{ color: '#ecfdf5', margin: '0 0 10px 0' }}>Svaret är registrerat!</h3>
-            <p style={{ color: '#a7f3d0', fontSize: '1rem' }}>Ditt svar för fråga {currentQuestionIndex}: <strong>{currentAnswer} %</strong></p>
-            <p style={{ color: '#d1fae5', fontSize: '0.85rem', marginTop: '20px' }}>Vänta tills föreläsaren avslutar frågan...</p>
           </div>
         )}
       </div>
