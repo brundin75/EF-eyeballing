@@ -1,4 +1,19 @@
-import React, { useState } from 'react';
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, push, set } from "firebase/database";
+
+// Klistra in dina nycklar från Firebase här:
+const firebaseConfig = {
+  apiKey: "AIzaSyCzSVIr2jy9uu8Ok_SSTXdi-T9F5jaf0HQ",
+  authDomain: "lvef-eyeballing.firebaseapp.com",
+  databaseURL: "https://lvef-eyeballing-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "lvef-eyeballing",
+  storageBucket: "lvef-eyeballing.firebasestorage.app",
+  messagingSenderId: "245542008658",
+  appId: "1:245542008658:web:5cf6cae5d7cfe679b02c8b"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import QRCode from 'react-qr-code';
 import Plot from 'react-plotly.js';
