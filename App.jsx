@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import QRCode from 'react-qr-code';
 import Plot from 'react-plotly.js';
-import { CheckCircle, Lock, BarChart2 } from 'lucide-react';
+import { CheckCircle, Lock, BarChart2, AlertCircle } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, push, set } from 'firebase/database';
 
 // =========================================================================
-// 1. KLISTRA IN DINA FIREBASE-NYCKLAR HÄR (från Firebase Settings)
+// FIREBASE KONFIGURATION (Dina nycklar för lvef-eyeballing)
 // =========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyCzSVIr2jy9uu8Ok_SSTXdi-T9F5jaf0HQ",
@@ -56,15 +56,23 @@ export default function App() {
   // Lyssna på rumsinfo från Firebase (frågonummer, status, antal frågor)
   useEffect(() => {
     if (!roomCode) return;
+    console.log("Lyssnar på rumskod i Firebase:", roomCode);
     const infoRef = ref(db, `rooms/${roomCode}/info`);
-    const unsubscribe = onValue(infoRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setTotalQuestions(data.totalQuestions || 5);
-        setCurrentQuestionIndex(data.currentQuestion || 1);
-        setIsQuestionActive(data.isActive !== false);
+    const unsubscribe = onValue(
+      infoRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          console.log("Mottog rumsinfo från Firebase:", data);
+          setTotalQuestions(data.totalQuestions || 5);
+          setCurrentQuestionIndex(data.currentQuestion || 1);
+          setIsQuestionActive(data.isActive !== false);
+        }
+      },
+      (error) => {
+        console.error("Fel vid läsning av rumsinfo från Firebase:", error);
       }
-    });
+    );
     return () => unsubscribe();
   }, [roomCode]);
 
@@ -72,15 +80,22 @@ export default function App() {
   useEffect(() => {
     if (!roomCode) return;
     const answersRef = ref(db, `rooms/${roomCode}/answers`);
-    const unsubscribe = onValue(answersRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const formatted = {};
-      Object.keys(data).forEach((qNum) => {
-        const qObj = data[qNum] || {};
-        formatted[qNum] = Object.values(qObj).map(Number);
-      });
-      setAllAnswers(formatted);
-    });
+    const unsubscribe = onValue(
+      answersRef,
+      (snapshot) => {
+        const data = snapshot.val() || {};
+        console.log("Mottog svarsdata från Firebase:", data);
+        const formatted = {};
+        Object.keys(data).forEach((qNum) => {
+          const qObj = data[qNum] || {};
+          formatted[qNum] = Object.values(qObj).map(Number);
+        });
+        setAllAnswers(formatted);
+      },
+      (error) => {
+        console.error("Fel vid läsning av svarsdata från Firebase:", error);
+      }
+    );
     return () => unsubscribe();
   }, [roomCode]);
 
@@ -93,7 +108,7 @@ export default function App() {
     }
   }, [currentQuestionIndex, submittedQuestionIndex, role]);
 
-  // Beräkna statistik
+  // Beräkna statistik (Medelvärde, Standardavvikelse, Min, Max)
   const calcStats = (data = []) => {
     const count = data.length;
     if (count === 0) return { count: 0, avg: '0', sd: '0', sdNum: 0, minVal: 0, maxVal: 0 };
@@ -124,12 +139,20 @@ export default function App() {
   };
 
   const startPresentation = () => {
+    console.log("Initierar rum i Firebase med kod:", roomCode);
     set(ref(db, `rooms/${roomCode}/info`), {
       totalQuestions: Number(totalQuestions),
       currentQuestion: 1,
       isActive: true
-    });
-    setRole('presenter');
+    })
+      .then(() => {
+        console.log("Rummet har skapats i Firebase!");
+        setRole('presenter');
+      })
+      .catch((err) => {
+        console.error("FEL vid skapande av rum i Firebase:", err);
+        alert("Kunde inte skapa rum i Firebase: " + err.message);
+      });
   };
 
   const joinRoom = (e) => {
@@ -144,27 +167,29 @@ export default function App() {
   const currentQuestionAnswers = allAnswers[currentQuestionIndex] || [];
 
   const submitAnswer = () => {
-  const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
-  const newRef = push(ansRef);
-  
-  console.log("Försöker skicka svar till Firebase...", { roomCode, currentQuestionIndex, currentAnswer });
-
-  set(newRef, Number(currentAnswer))
-    .then(() => {
-      console.log("Svar skickat och sparat i Firebase!");
-      setHasSubmitted(true);
-      setSubmittedQuestionIndex(currentQuestionIndex);
-    })
-    .catch((error) => {
-      console.error("FIREBASE-FEL VID SKICKNING:", error);
-      alert("Kunde inte skicka svar: " + error.message);
-    });
-};
+    console.log("Skickar svar till Firebase...", { roomCode, currentQuestionIndex, currentAnswer });
+    const ansRef = ref(db, `rooms/${roomCode}/answers/${currentQuestionIndex}`);
+    const newRef = push(ansRef);
+    set(newRef, Number(currentAnswer))
+      .then(() => {
+        console.log("Svaret har sparats i Firebase!");
+        setHasSubmitted(true);
+        setSubmittedQuestionIndex(currentQuestionIndex);
+      })
+      .catch((err) => {
+        console.error("FEL vid sparande av svar i Firebase:", err);
+        alert("Kunde inte skicka svar: " + err.message);
+      });
+  };
 
   const toggleQuestionStatus = () => {
     const newStatus = !isQuestionActive;
     setIsQuestionActive(newStatus);
-    set(ref(db, `rooms/${roomCode}/info/isActive`), newStatus);
+    set(ref(db, `rooms/${roomCode}/info/isActive`), newStatus)
+      .catch((err) => {
+        console.error("FEL vid ändring av röstningsstatus:", err);
+        alert("Kunde inte ändra röstningsstatus: " + err.message);
+      });
   };
 
   const goToNextQuestion = () => {
@@ -176,6 +201,9 @@ export default function App() {
         totalQuestions: Number(totalQuestions),
         currentQuestion: nextQ,
         isActive: true
+      }).catch((err) => {
+        console.error("FEL vid byte av fråga:", err);
+        alert("Kunde inte byta fråga i Firebase: " + err.message);
       });
     } else {
       setRole('summary');
@@ -186,7 +214,7 @@ export default function App() {
   const joinUrl = `${currentUrl}?room=${roomCode}`;
   const currentStats = calcStats(currentQuestionAnswers);
 
-  // Välkomstsida
+  // 1. Välkomstsida
   if (!role) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
@@ -215,7 +243,7 @@ export default function App() {
     );
   }
 
-  // Föreläsare: Inställningar innan start
+  // 2. Föreläsare: Inställningar innan start
   if (role === 'setup') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
@@ -243,7 +271,7 @@ export default function App() {
     );
   }
 
-  // Föreläsare: Live vy för aktiv fråga
+  // 3. Föreläsare: Live vy för aktiv fråga
   if (role === 'presenter') {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', padding: '30px', fontFamily: 'sans-serif' }}>
@@ -358,7 +386,7 @@ export default function App() {
     );
   }
 
-  // Föreläsare: Slutsammanfattning sorterad på Standardavvikelse (SD)
+  // 4. Föreläsare: Slutsammanfattning sorterad på Standardavvikelse (SD)
   if (role === 'summary') {
     const summaryList = Array.from({ length: totalQuestions }, (_, i) => {
       const qNum = i + 1;
@@ -413,7 +441,7 @@ export default function App() {
     );
   }
 
-  // Deltagare Vy
+  // 5. Deltagare Vy
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#064e3b', color: '#f8fafc', padding: '20px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: '400px', backgroundColor: '#047857', borderRadius: '16px', padding: '25px', border: '1px solid #059669' }}>
@@ -469,33 +497,3 @@ const rootElement = document.getElementById('root');
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(<App />);
 }
-
-
-
-  // Föreläsare: Inställningar innan start
-  if (role === 'setup') {
-    return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: 'sans-serif' }}>
-        <div style={{ backgroundColor: '#1e293b', padding: '40px', borderRadius: '20px', border: '1px solid #334155', maxWidth: '450px', width: '100%' }}>
-          <h2 style={{ marginTop: 0, color: '#38bdf8' }}>Konfigurera föreläsning</h2>
-          <p style={{ color: '#94a3b8' }}>Välj hur många frågor/fall som ingår i din presentation.</p>
-
-          <div style={{ margin: '30px 0' }}>
-            <label style={{ display: 'block', marginBottom: '10px', color: '#cbd5e1', fontWeight: 'bold' }}>Antal frågor:</label>
-            <input
-              type="number"
-              min="1"
-              max="30"
-              value={totalQuestions}
-              onChange={(e) => setTotalQuestions(Math.max(1, parseInt(e.target.value) || 1))}
-              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', fontSize: '1.2rem', textAlign: 'center' }}
-            />
-          </div>
-
-          <button onClick={startPresentation} style={{ width: '100%', backgroundColor: '#2563eb', color: 'white', padding: '16px', borderRadius: '12px', border: 'none', fontSize: '1.1rem', cursor: 'pointer', fontWeight: 'bold' }}>
-            Starta rum ({roomCode})
-          </button>
-        </div>
-      </div>
-    );
-  }
